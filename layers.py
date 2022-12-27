@@ -75,7 +75,7 @@ def FPN(x, x_pre, filters, activation="leaky"):
     x = layers.Conv2DTranspose(filters, 3, strides=2, padding="same")(x)
     x = layers.BatchNormalization()(x)
     x = act(activation)(x)
-    X = layers.Concatenate()([x, x_pre])
+    x = layers.Concatenate()([x, x_pre])
     return x
 
 
