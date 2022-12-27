@@ -1,4 +1,3 @@
-from turtle import back
 from tensorflow.keras import backend
 import tensorflow as tf
 
@@ -38,7 +37,7 @@ class BoxFilter(object):
                  score_threshold: float = 0.5,
                  iou_threshold: float = 0.5,
                  max_num_boxes: int = 100,
-                 padding: bool = None):
+                 padding: str = None):
 
         self.score_threshold = score_threshold
         self.iou_threshold = iou_threshold

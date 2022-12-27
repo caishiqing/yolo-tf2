@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow_addons.utils.keras_utils import LossFunctionWrapper
 from utils import batch_box_filter, compute_iou
 
 
@@ -36,7 +37,7 @@ class MAP(tf.keras.metrics.Mean):
         pred_score = pred[:, :, 4]
         pred_class = tf.argmax(pred[:, :, 5:], axis=-1)
 
-        iou_matrix = compute_iou(gt_bbox, pred_bbox)
+        iou_matrix = compute_iou(gt_bbox, pred_bbox, mode="iou")
         class_comp = tf.equal(gt_class[:, :, tf.newaxis], pred_class[:, tf.newaxis, :])
         tp_score = tf.where(tf.greater(iou_matrix, self.tp_threshold) & class_comp, iou_matrix, 0)
         tp_score = tf.where(tf.equal(tp_score, tf.reduce_max(tp_score, -1, keepdims=True)), tp_score, 0)
@@ -92,6 +93,51 @@ class MAP(tf.keras.metrics.Mean):
         return ap
 
 
+class GIoULoss(tf.keras.losses.Loss):
+    """Implements the GIoU loss function.
+
+    GIoU loss was first introduced in the
+    [Generalized Intersection over Union:
+    A Metric and A Loss for Bounding Box Regression]
+    (https://giou.stanford.edu/GIoU.pdf).
+    GIoU is an enhancement for models which use IoU in object detection.
+
+    Usage:
+
+    >>> gl = GIoULoss()
+    >>> boxes1 = tf.constant([[4.0, 3.0, 7.0, 5.0], [5.0, 6.0, 10.0, 7.0]])
+    >>> boxes2 = tf.constant([[3.0, 4.0, 6.0, 8.0], [14.0, 14.0, 15.0, 15.0]])
+    >>> loss = gl(boxes1, boxes2)
+    >>> loss
+    <tf.Tensor: shape=(), dtype=float32, numpy=1.5041667>
+
+    Usage with `tf.keras` API:
+
+    >>> model = tf.keras.Model()
+    >>> model.compile('sgd', loss=GIoULoss())
+
+    Args:
+      mode: one of ['giou', 'iou'], decided to calculate GIoU or IoU loss.
+    """
+
+    def __init__(self,
+                 mode: str = "giou",
+                 reduction: str = tf.keras.losses.Reduction.AUTO,
+                 name: str = "giou_loss"):
+
+        super(GIoULoss, self).__init__(name=name, reduction=reduction)
+        self.mode = mode
+
+    def call(self, y_true, y_pred):
+        y_pred = tf.convert_to_tensor(y_pred)
+        if not y_pred.dtype.is_floating:
+            y_pred = tf.cast(y_pred, tf.float32)
+        y_true = tf.cast(y_true, y_pred.dtype)
+        giou = tf.squeeze(compute_iou(y_pred, y_true, mode=self.mode))
+
+        return 1 - giou
+
+
 def tf_while_condition(x, loop_counter):
     return tf.not_equal(loop_counter, 0)
 
@@ -111,10 +157,8 @@ def cummax(x):
 
 
 if __name__ == "__main__":
-    map = MAP()
-    recall = tf.random.uniform(shape=(1000,))
-    recall = tf.sort(recall, direction="ASCENDING")
-    precision = tf.random.uniform(shape=(1000,))
-    precision = tf.sort(precision, direction="DESCENDING")
-    ap = map.compute_ap(recall, precision)
-    print(ap)
+    b1 = tf.constant([[4.0, 3.0, 7.0, 5.0], [5.0, 6.0, 10.0, 7.0]])
+    b2 = tf.constant([[3.0, 4.0, 6.0, 8.0], [14.0, 14.0, 15.0, 15.0]])
+    gl = GIoULoss()
+    loss = gl(b1, b2)
+    pass

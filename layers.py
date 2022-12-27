@@ -129,8 +129,8 @@ class Head(layers.Layer):
         super(Head, self).__init__(**kwargs)
         self.img_size = image_size
         self.anchor_prior_params = anchor_prior_params
-        self.width, self.height = image_size
-        self.w_normed, self.h_normed = anchor_prior_params
+        self.heigh, self.width = image_size
+        self.h_normed, self.w_normed = anchor_prior_params
 
     def call(self, logits):
         pos_logits = logits[..., :4]
@@ -141,22 +141,22 @@ class Head(layers.Layer):
         cls = tf.nn.softmax(cls_logits, axis=-1)
 
         # all positionn infomations are normalized to [0, 1]
-        logits_w = tf.shape(pos)[1]
-        logits_h = tf.shape(pos)[2]
-        cx = tf.range(0, logits_w, dtype=pos.dtype)[tf.newaxis, :, tf.newaxis]
-        cy = tf.range(0, logits_h, dtype=pos.dtype)[tf.newaxis, tf.newaxis, :]
-        bx = (pos[..., 0] + cx) / tf.cast(logits_w, cx.dtype)
-        by = (pos[..., 1] + cy) / tf.cast(logits_h, cx.dtype)
-        bw = pos[..., 2] * self.w_normed
-        bh = pos[..., 3] * self.h_normed
+        logits_h = tf.shape(pos)[1]
+        logits_w = tf.shape(pos)[2]
+        cy = tf.range(0, logits_h, dtype=pos.dtype)[tf.newaxis, :, tf.newaxis]
+        cx = tf.range(0, logits_w, dtype=pos.dtype)[tf.newaxis, tf.newaxis, :]
+        by = (pos[..., 0] + cy) / tf.cast(logits_h, cy.dtype)
+        bx = (pos[..., 1] + cx) / tf.cast(logits_w, cx.dtype)
+        bh = pos[..., 2] * self.h_normed
+        bw = pos[..., 3] * self.w_normed
 
         # rescale to origin image size
-        bx *= self.width
-        by *= self.height
-        bw *= self.width
-        bh *= self.height
+        y1 = by * self.heigh
+        x1 = bx * self.width
+        y2 = y1 + bh * self.heigh
+        x2 = x1 + bw * self.width
 
-        pos = tf.stack([bx, by, bw, bh], axis=-1)
+        pos = tf.stack([y1, x1, y2, x2], axis=-1)
         pos = tf.reshape(pos, [-1, logits_w * logits_h, 4])
         prb = tf.reshape(prb, [-1, logits_w * logits_h, 1])
         cls = tf.reshape(cls, [-1, logits_w * logits_h, tf.shape(cls)[-1]])
