@@ -1,6 +1,5 @@
 from tensorflow.keras import layers
 import tensorflow as tf
-from torch import xlogy
 from utils import *
 
 
@@ -64,6 +63,36 @@ def CSPX(x, filters, num=1, activation="mish"):
     return x
 
 
+def CSP1_X(x, filters, num=1, activation="leaky"):
+    pre = x
+    x = conv(x, filters, 3, 1, activation)
+    for _ in range(num):
+        x = res(x, filters, activation)
+
+    a = layers.Conv2D(filters, 3, padding="same")(x)
+    b = layers.Conv2D(filters, 3, padding="same")(pre)
+    x = layers.Concatenate()([a, b])
+    x = layers.BatchNormalization()(x)
+    x = act(activation)(x)
+    x = conv(x, filters, 3, 1, activation)
+    return x
+
+
+def CSP2_X(x, filters, num=1, activation="leaky"):
+    pre = x
+    x = conv(x, filters, 3, 1, activation)
+    for _ in range(2 * num):
+        x = conv(x, filters, 3, 1, activation)
+
+    a = layers.Conv2D(filters, 3, padding="same")(x)
+    b = layers.Conv2D(filters, 3, padding="same")(pre)
+    x = layers.Concatenate()([a, b])
+    x = layers.BatchNormalization()(x)
+    x = act(activation)(x)
+    x = conv(x, filters, 3, 1, activation)
+    return x
+
+
 def SPP(x, sizes):
     xs = []
     for size in sizes:
@@ -82,6 +111,16 @@ def FPN(x, x_pre, filters, activation="leaky"):
 def PAN(x, x_pre, filters, activation="leaky"):
     x = conv(x, filters, 3, 2, activation)
     x = layers.Concatenate()([x, x_pre])
+    return x
+
+
+def Focus(x, filters=32, activation="leaky"):
+    x1 = layers.Lambda(lambda x: x[:, ::2, ::2, :], name='stride1')(x)
+    x2 = layers.Lambda(lambda x: x[:, 1::2, ::2, :], name='stride2')(x)
+    x3 = layers.Lambda(lambda x: x[:, ::2, 1::2, :], name='stride3')(x)
+    x4 = layers.Lambda(lambda x: x[:, 1::2, 1::2, :], name='stride4')(x)
+    x = layers.Concatenate(-1)([x1, x2, x3, x4])
+    x = conv(x, filters, 3, activation=activation)
     return x
 
 
