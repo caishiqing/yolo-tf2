@@ -41,8 +41,8 @@ def Yolov3(image_size: Tuple[int] = (608, 608),
     h = conv(x, 256, 3)
     logits3 = layers.Dense(len(anchor_priors[2]) * (5 + num_classes))(h)
 
-    pos, prb, cls = Heads([logits1, logits2, logits3], image_size, anchor_priors)
-    model = tf.keras.Model(inputs=img, outputs=[pos, prb, cls])
+    y = Heads([logits1, logits2, logits3], image_size, anchor_priors)
+    model = tf.keras.Model(inputs=img, outputs=y)
     return model
 
 
@@ -92,7 +92,7 @@ def Yolov4(image_size: Tuple[int] = (608, 608),
     logits2 = layers.Dense(len(anchor_priors[1]) * (5 + num_classes))(h)
 
     # Prediction 19 * 19
-    h = conv(x6, 1024, 3)
+    h = conv(x7, 1024, 3)
     logits1 = layers.Dense(len(anchor_priors[0]) * (5 + num_classes))(h)
 
     y = Heads([logits1, logits2, logits3], image_size, anchor_priors)
@@ -101,5 +101,5 @@ def Yolov4(image_size: Tuple[int] = (608, 608),
 
 
 if __name__ == "__main__":
-    yolov = Yolov4()
+    yolov = Yolov3()
     yolov.summary()
