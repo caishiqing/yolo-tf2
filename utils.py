@@ -1,5 +1,5 @@
-from tensorflow.keras import backend
 import tensorflow as tf
+import numpy as np
 
 
 def mish(x):
@@ -79,11 +79,10 @@ def batch_box_filter(predictions,
                      predictions)
 
 
-def compute_iou(b1: tf.Tensor, b2: tf.Tensor, mode="iou"):
-    ndim1 = backend.ndim(b1)
-    ndim2 = backend.ndim(b2)
-    assert ndim1 == ndim2
-    if ndim1 > 1 and tf.shape(b1)[-2] != tf.shape(b2)[-2]:
+def compute_iou(b1: tf.Tensor, b2: tf.Tensor, mode="iou", return_matrix=False):
+    if return_matrix:
+        # b1: (batch, N, 4)
+        # b2: (batch, M, 4)
         b1 = b1[..., tf.newaxis, :]
         b2 = b2[..., tf.newaxis, :, :]
 
@@ -104,8 +103,8 @@ def compute_iou(b1: tf.Tensor, b2: tf.Tensor, mode="iou"):
     intersect_width = tf.maximum(zero, intersect_xmax - intersect_xmin)
     intersect_height = tf.maximum(zero, intersect_ymax - intersect_ymin)
     intersect_area = intersect_width * intersect_height
-
     union_area = b1_area + b2_area - intersect_area
+
     iou = tf.math.divide_no_nan(intersect_area, union_area)
     if mode == "iou":
         return iou
@@ -117,8 +116,27 @@ def compute_iou(b1: tf.Tensor, b2: tf.Tensor, mode="iou"):
     enclose_width = tf.maximum(zero, enclose_xmax - enclose_xmin)
     enclose_height = tf.maximum(zero, enclose_ymax - enclose_ymin)
     enclose_area = enclose_width * enclose_height
-    giou = iou - tf.math.divide_no_nan((enclose_area - union_area), enclose_area)
-    return giou
+
+    if mode == "giou":
+        giou = iou - tf.math.divide_no_nan((enclose_area - union_area), enclose_area)
+        return giou
+
+    distance_enclose = tf.pow(enclose_xmax-enclose_xmin, 2) + tf.pow(enclose_ymax-enclose_ymin, 2)
+    b1_xcenter = (b1_xmin + b1_xmax) / 2
+    b1_ycenter = (b1_ymin + b1_ymax) / 2
+    b2_xcenter = (b2_xmin + b2_xmax) / 2
+    b2_ycenter = (b2_ymin + b2_ymax) / 2
+    distance_box = tf.pow(b1_xcenter-b2_xcenter, 2) + tf.pow(b1_ycenter-b2_ycenter, 2)
+    diou = iou-tf.math.divide_no_nan(distance_box, distance_enclose)
+
+    if mode == "diou":
+        return diou
+
+    if mode == "ciou":
+        v = tf.abs(tf.math.tanh(tf.math.divide_no_nan(b1_width, b1_height))
+                   - tf.math.tanh(tf.math.divide_no_nan(b2_width, b2_height)))
+        ciou = diou - tf.math.divide_no_nan(tf.pow(v, 2), 1-iou+v)
+        return ciou
 
 
 if __name__ == "__main__":
