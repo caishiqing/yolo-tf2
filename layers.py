@@ -124,13 +124,21 @@ def Focus(x, filters=32, activation="leaky"):
     return x
 
 
+@tf.keras.utils.register_keras_serializable("yloo-tf2")
 class Head(layers.Layer):
-    def __init__(self, image_size, anchor_prior_params, **kwargs):
+    def __init__(self, anchor_prior_params, **kwargs):
         super(Head, self).__init__(**kwargs)
-        self.img_size = image_size
         self.anchor_prior_params = anchor_prior_params
-        self.heigh, self.width = image_size
         self.h_normed, self.w_normed = anchor_prior_params
+
+    def build(self, input_shape):
+        _, fmap_h, fmap_w, dim = input_shape
+        self.nc = dim - 5
+        self.fmap_h = fmap_h
+        self.fmap_w = fmap_w
+        self.cy = tf.range(0, self.fmap_h, dtype=tf.float32)[tf.newaxis, :, tf.newaxis]
+        self.cx = tf.range(0, self.fmap_w, dtype=tf.float32)[tf.newaxis, tf.newaxis, :]
+        self.built = True
 
     def call(self, logits):
         pos_logits = logits[..., :4]
@@ -141,30 +149,31 @@ class Head(layers.Layer):
         cls = tf.nn.softmax(cls_logits, axis=-1)
 
         # all positionn infomations are normalized to [0, 1]
-        logits_h = tf.shape(pos)[1]
-        logits_w = tf.shape(pos)[2]
-        cy = tf.range(0, logits_h, dtype=pos.dtype)[tf.newaxis, :, tf.newaxis]
-        cx = tf.range(0, logits_w, dtype=pos.dtype)[tf.newaxis, tf.newaxis, :]
-        by = (pos[..., 0] + cy) / tf.cast(logits_h, cy.dtype)
-        bx = (pos[..., 1] + cx) / tf.cast(logits_w, cx.dtype)
+        by = (pos[..., 0] + self.cy) / tf.cast(self.fmap_h, tf.float32)
+        bx = (pos[..., 1] + self.cx) / tf.cast(self.fmap_w, tf.float32)
         bh = pos[..., 2] * self.h_normed
         bw = pos[..., 3] * self.w_normed
-
-        # rescale to origin image size
-        y1 = by * self.heigh
-        x1 = bx * self.width
-        y2 = y1 + bh * self.heigh
-        x2 = x1 + bw * self.width
+        y1 = by - bh / 2
+        x1 = bx - bw / 2
+        y2 = by + bh / 2
+        x2 = bx + bw / 2
+        y1 = tf.where(tf.less(y1, 0), 0.0, y1)
+        x1 = tf.where(tf.less(x1, 0), 0.0, x1)
+        y2 = tf.where(tf.greater(y2, 1), 1.0, y2)
+        x2 = tf.where(tf.greater(x2, 1), 1.0, x2)
 
         pos = tf.stack([y1, x1, y2, x2], axis=-1)
-        pos = tf.reshape(pos, [-1, logits_w * logits_h, 4])
-        prb = tf.reshape(prb, [-1, logits_w * logits_h, 1])
-        cls = tf.reshape(cls, [-1, logits_w * logits_h, tf.shape(cls)[-1]])
-        y = tf.concat([pos, prb, cls], axis=-1)
-        return y
+        pos = tf.reshape(pos, [-1, self.fmap_w * self.fmap_h, 4])
+        prb = tf.reshape(prb, [-1, self.fmap_w * self.fmap_h])
+        cls = tf.reshape(cls, [-1, self.fmap_w * self.fmap_h, self.nc])
+        return pos, prb, cls
 
     def compute_output_shape(self, input_shape):
-        return input_shape
+        b, h, w, c = input_shape
+        pos_shape = (b, h, w, 4)
+        prb_shape = (b, h, w)
+        cls_shape = (b, h, w, c-5)
+        return pos_shape, prb_shape, cls_shape
 
     def get_config(self):
         config = super().get_config()
@@ -177,25 +186,30 @@ class Head(layers.Layer):
         return config
 
 
-def Heads(inputs, image_size, anchor_priors):
+def Heads(inputs, anchor_priors):
     assert len(inputs) == len(anchor_priors)
-    outputs = []
+    all_pos, all_prb, all_cls = [], [], []
 
     for logits, priors in zip(inputs, anchor_priors):
+        # n_scale loops
         num_anchors = len(priors)
         anchor_logits = layers.Lambda(
             lambda x: tf.split(x, num_anchors, axis=-1),
             output_shape=(
                 tf.shape(logits)[1],
                 tf.shape(logits)[2],
-                tf.shape(logits) // num_anchors
+                tf.shape(logits)[3] // num_anchors
             )
         )(logits)
         for x, anchor_prior_params in zip(anchor_logits, priors):
-            # anchor_prior_params = (w_normed, h_normed)
-            y = Head(image_size, anchor_prior_params)(x)
-            outputs.append(y)
+            # n_anchor loops
+            pos, prb, cls = Head(anchor_prior_params)(x)
+            all_pos.append(pos)
+            all_prb.append(prb)
+            all_cls.append(cls)
 
-    # (batch, logits_w * logits_h * n_anchor * n_scale, 4 + 1 + num_classes)
-    y = layers.Concatenate(1)(outputs)
-    return y
+    # (batch, logits_w * logits_h * n_anchor * n_scale, 4 or None or n_class)
+    pos = layers.Concatenate(1, name="position")(all_pos)
+    prb = layers.Concatenate(1, name="confidence")(all_prb)
+    cls = layers.Concatenate(1, name="classify")(all_cls)
+    return pos, prb, cls

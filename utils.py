@@ -81,8 +81,8 @@ def batch_box_filter(predictions,
 
 def compute_iou(b1: tf.Tensor, b2: tf.Tensor, mode="iou", return_matrix=False):
     if return_matrix:
-        # b1: (batch, N, 4)
-        # b2: (batch, M, 4)
+        # b1: (batch, N, 4), box coordinates lead to (y_min, x_min, y_max, x_max)
+        # b2: (batch, M, 4), box coordinates lead to (y_min, x_min, y_max, x_max)
         b1 = b1[..., tf.newaxis, :]
         b2 = b2[..., tf.newaxis, :, :]
 
