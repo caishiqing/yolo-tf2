@@ -144,15 +144,15 @@ class Head(layers.Layer):
         pos_logits = logits[..., :4]
         prb_logits = logits[..., 4]
         cls_logits = logits[..., 5:]
-        pos = tf.nn.sigmoid(pos_logits)
+        box = tf.nn.sigmoid(pos_logits)
         prb = tf.nn.sigmoid(prb_logits)
         cls = tf.nn.softmax(cls_logits, axis=-1)
 
         # all positionn infomations are normalized to [0, 1]
-        by = (pos[..., 0] + self.cy) / tf.cast(self.fmap_h, tf.float32)
-        bx = (pos[..., 1] + self.cx) / tf.cast(self.fmap_w, tf.float32)
-        bh = pos[..., 2] * self.h_normed
-        bw = pos[..., 3] * self.w_normed
+        by = (box[..., 0] + self.cy) / tf.cast(self.fmap_h, tf.float32)
+        bx = (box[..., 1] + self.cx) / tf.cast(self.fmap_w, tf.float32)
+        bh = box[..., 2] * self.h_normed
+        bw = box[..., 3] * self.w_normed
         y1 = by - bh / 2
         x1 = bx - bw / 2
         y2 = by + bh / 2
@@ -162,11 +162,11 @@ class Head(layers.Layer):
         y2 = tf.where(tf.greater(y2, 1), 1.0, y2)
         x2 = tf.where(tf.greater(x2, 1), 1.0, x2)
 
-        pos = tf.stack([y1, x1, y2, x2], axis=-1)
-        pos = tf.reshape(pos, [-1, self.fmap_w * self.fmap_h, 4])
+        box = tf.stack([y1, x1, y2, x2], axis=-1)
+        box = tf.reshape(box, [-1, self.fmap_w * self.fmap_h, 4])
         prb = tf.reshape(prb, [-1, self.fmap_w * self.fmap_h])
         cls = tf.reshape(cls, [-1, self.fmap_w * self.fmap_h, self.nc])
-        return pos, prb, cls
+        return box, prb, cls
 
     def compute_output_shape(self, input_shape):
         b, h, w, c = input_shape
@@ -203,13 +203,13 @@ def Heads(inputs, anchor_priors):
         )(logits)
         for x, anchor_prior_params in zip(anchor_logits, priors):
             # n_anchor loops
-            pos, prb, cls = Head(anchor_prior_params)(x)
-            all_pos.append(pos)
+            box, prb, cls = Head(anchor_prior_params)(x)
+            all_pos.append(box)
             all_prb.append(prb)
             all_cls.append(cls)
 
     # (batch, logits_w * logits_h * n_anchor * n_scale, 4 or None or n_class)
-    pos = layers.Concatenate(1, name="position")(all_pos)
+    box = layers.Concatenate(1, name="position")(all_pos)
     prb = layers.Concatenate(1, name="confidence")(all_prb)
     cls = layers.Concatenate(1, name="classify")(all_cls)
-    return pos, prb, cls
+    return box, prb, cls

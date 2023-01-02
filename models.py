@@ -10,51 +10,51 @@ class Detector(tf.keras.Model):
 
     def compile(self, optimizer, iou_mode='ciou'):
         super(Detector, self).compile(optimizer=optimizer)
-        self.pos_loss = IoULoss(mode=iou_mode)
+        self.box_loss = IoULoss(mode=iou_mode)
         self.prb_loss = tf.keras.losses.BinaryCrossentropy()
         self.cls_loss = tf.keras.losses.SparseCategoricalCrossentropy()
 
     def train_step(self, data):
-        image, (label_pos, label_cls) = data
-        mask = tf.reduce_any(tf.not_equal(label_pos, 0), axis=-1)
+        image, (label_box, label_cls) = data
+        mask = tf.reduce_any(tf.not_equal(label_box, 0), axis=-1)
         with tf.GradientTape() as tape:
-            pos, prb, cls = self(image, training=True)
-            iou_matrix = compute_iou(label_pos, pos, mode='iou', return_matrix=True)
+            box, prb, cls = self(image, training=True)
+            iou_matrix = compute_iou(label_box, box, mode='iou', return_matrix=True)
             iou_matrix *= tf.cast(mask[:, :, tf.newaxis], dtype=iou_matrix.dtype)
             detect_idx = tf.argmax(iou_matrix, axis=1)
             detect_iou = tf.reduce_max(iou_matrix, axis=1)
-            detect_pos = tf.gather(label_pos, detect_idx, batch_dims=0)
+            detect_box = tf.gather(label_box, detect_idx, batch_dims=0)
             detect_cls = tf.gather(label_cls, detect_idx, batch_dims=0)
 
             positive_mask = tf.greater(detect_iou, 0.7)
             negtive_mask = tf.greater(detect_iou, 0.0) & tf.less(detect_iou, 0.3)
-            pred_pos = tf.boolean_mask(pos, positive_mask)
-            label_pos = tf.boolean_mask(detect_pos, positive_mask)
+            pred_box = tf.boolean_mask(box, positive_mask)
+            label_box = tf.boolean_mask(detect_box, positive_mask)
             pred_cls = tf.boolean_mask(cls, positive_mask)
             label_cls = tf.boolean_mask(detect_cls, positive_mask)
             pred_positive_prb = tf.boolean_mask(prb, positive_mask)
             pred_negtive_prb = tf.boolean_mask(prb, negtive_mask)
 
-            pos_loss = self.pos_loss(label_pos, pred_pos)
+            box_loss = self.box_loss(label_box, pred_box)
             prb_loss = self.prb_loss(tf.ones_like(pred_positive_prb), pred_positive_prb) +\
                 self.prb_loss(tf.zeros_like(pred_negtive_prb), pred_negtive_prb)
             cls_loss = self.cls_loss(label_cls, pred_cls)
-            loss = pos_loss + prb_loss + cls_loss
+            loss = box_loss + prb_loss + cls_loss
 
         self.optimizer.minimize(loss, self.trainable_variables, tape=tape)
-        return {"pos_loss": pos_loss, "prb_loss": prb_loss, "cls_loss": cls_loss}
+        return {"box_loss": box_loss, "prb_loss": prb_loss, "cls_loss": cls_loss}
 
     def detect(self, image, max_num_objects=1, iou_threshold=0.7, score_threshold=0.5):
         image = tf.convert_to_tensor(image)
-        pos, prb, cls = self(image)
+        box, prb, cls = self(image)
         cls = tf.argmax(cls, axis=-1)
-        idx, num_valid = tf.image.non_max_suppression_padded(pos, prb, max_num_objects,
+        idx, num_valid = tf.image.non_max_suppression_padded(box, prb, max_num_objects,
                                                              iou_threshold=iou_threshold,
                                                              score_threshold=score_threshold,
                                                              pad_to_max_output_size=True)
 
         results = []
-        for boxes, classes, indices, num in zip(pos.numpy().tolist(),
+        for boxes, classes, indices, num in zip(box.numpy().tolist(),
                                                 cls.numpy().tolist(),
                                                 idx.numpy().tolist(),
                                                 num_valid.numpy().tolist()):
