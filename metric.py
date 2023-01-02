@@ -109,10 +109,10 @@ class mAP(tf.keras.metrics.Metric):
         self.tp_threshold = tp_threshold
         self.top_k = top_k
 
-        self.zero = tf.constant([0.0], dtype=tf.float32)
-        self.one = tf.constant([1.0], dtype=tf.float32)
         self.table = []
-        self.num_samples, self.num_objects, self.num_predictions = 0, 0, 0
+        self.num_samples = 0
+        self.num_objects = 0
+        self.num_predictions = 0
 
     def update_state(self, ground_truth, predictions, sample_weight=None):
         label_box, label_cls = ground_truth
